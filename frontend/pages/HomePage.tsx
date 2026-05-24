@@ -21,11 +21,11 @@ const getInitialIntroState = () => {
 const HomePage: React.FC = () => {
   const hasPlayedIntro = getInitialIntroState();
   const [appState, setAppState] = useState<'scanning' | 'ready' | 'active'>(hasPlayedIntro ? 'active' : 'scanning');
-  const [scrollProgress, setScrollProgress] = useState(0);
   const [activePhase, setActivePhase] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
   
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isAnimatingRef = useRef(false);
+  const touchStartYRef = useRef(0);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -40,57 +40,52 @@ const HomePage: React.FC = () => {
     return () => clearInterval(checkEngine);
   }, [hasPlayedIntro]);
 
-  useEffect(() => {
-    if (appState !== 'active') return;
+  // Discrete Step-by-Step Scrolling Logic
+  const goToPhase = (newPhase: number) => {
+    if (newPhase < 0 || newPhase >= phaseData.length || isAnimatingRef.current) return;
+    
+    isAnimatingRef.current = true;
+    setActivePhase(newPhase);
+    
+    if (window.rdEngine) {
+      window.rdEngine.setPhase(newPhase);
+    }
 
-    const container = scrollContainerRef.current;
-    if (!container) return;
+    // Cooldown matches the morph duration to prevent rapid skipping
+    setTimeout(() => {
+      isAnimatingRef.current = false;
+    }, 2000); 
+  };
 
-    const handleScroll = () => {
-      const maxScroll = Math.max(container.scrollHeight - container.clientHeight, 1);
-      const progress = Math.min(Math.max(container.scrollTop / maxScroll, 0), 1);
-      setScrollProgress(progress);
+  const handleWheel = (e: React.WheelEvent) => {
+    if (appState !== 'active' || modalOpen) return;
+    if (e.deltaY > 50) {
+      goToPhase(activePhase + 1);
+    } else if (e.deltaY < -50) {
+      goToPhase(activePhase - 1);
+    }
+  };
 
-      // 5 phases (0, 1, 2, 3, 4)
-      let newPhase = Math.floor(progress / 0.2001); 
-      if(newPhase > 4) newPhase = 4;
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartYRef.current = e.touches[0].clientY;
+  };
 
-      if(newPhase !== activePhase) {
-        setActivePhase(newPhase);
-        if (window.rdEngine) {
-          window.rdEngine.setPhase(newPhase);
-        }
-      }
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (appState !== 'active' || modalOpen || isAnimatingRef.current) return;
+    const touchEndY = e.touches[0].clientY;
+    const diff = touchStartYRef.current - touchEndY;
 
-      if (window.rdEngine) {
-        window.rdEngine.setCameraZ(-Math.sin(progress * Math.PI) * 15);
-      }
-    };
-
-    container.addEventListener('scroll', handleScroll);
-    return () => container.removeEventListener('scroll', handleScroll);
-  }, [appState, activePhase]);
+    if (diff > 50) {
+      goToPhase(activePhase + 1);
+    } else if (diff < -50) {
+      goToPhase(activePhase - 1);
+    }
+  };
 
   const handleStartEngine = () => {
     setAppState('active');
     if (window.rdEngine) {
       window.rdEngine.triggerIntro();
-    }
-  };
-
-  // Handle clicking on the invisible scroll container
-  const handleContainerClick = (e: React.MouseEvent) => {
-    if (window.rdEngine && window.rdEngine.handleClick) {
-      window.rdEngine.handleClick(e.clientX, e.clientY, () => {
-        const link = phaseData[activePhase].link;
-        if (link) {
-          if (link.startsWith('/')) {
-            navigate(link);
-          } else {
-            window.open(link, '_blank');
-          }
-        }
-      });
     }
   };
 
@@ -120,18 +115,34 @@ const HomePage: React.FC = () => {
     closeModal();
   };
 
+  // Calculate progress percentage based on discrete phases
+  const progressPercentage = Math.round((activePhase / (phaseData.length - 1)) * 100);
+
   return (
-    <div data-testid="home-page" className="relative w-full h-screen overflow-hidden">
+    <div 
+      data-testid="home-page" 
+      className="relative w-full h-screen overflow-hidden"
+      onWheel={handleWheel}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+    >
       
-      {/* Invisible Scroll Container - Clickable to trigger 3D zoom */}
+      {/* Invisible Interaction Layer - Clickable to trigger 3D zoom */}
       <div 
-        ref={scrollContainerRef}
-        onClick={handleContainerClick}
-        className="absolute inset-0 w-full h-full overflow-y-auto overflow-x-hidden z-20 custom-scrollbar cursor-pointer"
+        onClick={() => {
+          if (appState === 'active' && !modalOpen && window.rdEngine && window.rdEngine.handleClick) {
+            window.rdEngine.handleClick(window.innerWidth / 2, window.innerHeight / 2, () => {
+              const link = phaseData[activePhase].link;
+              if (link) {
+                if (link.startsWith('/')) navigate(link);
+                else window.open(link, '_blank');
+              }
+            });
+          }
+        }}
+        className="absolute inset-0 w-full h-full z-20 cursor-pointer"
         style={{ display: appState === 'active' && !modalOpen ? 'block' : 'none' }}
-      >
-        <div className="w-full h-[500vh]" />
-      </div>
+      />
 
       {/* Start Screen */}
       <AnimatePresence>
@@ -180,7 +191,7 @@ const HomePage: React.FC = () => {
           <div className="hidden md:block text-right">
             <h3 className="font-mono text-[10px] text-[#FF0033] mb-1">////// DATA STREAM</h3>
             <p className="font-mono text-[10px] text-neutral-500">
-              NODES: 50,000
+              NODES: 80,000
             </p>
           </div>
         </header>
@@ -210,13 +221,14 @@ const HomePage: React.FC = () => {
         </main>
 
         <footer className="flex justify-between items-end w-full mb-4">
-          <p className="font-mono text-[10px] text-neutral-500 hidden md:block opacity-70">SCROLL TO EXPLORE // CLICK PARTICLES TO ENTER</p>
+          <p className="font-mono text-[10px] text-neutral-500 hidden md:block opacity-70 animate-pulse">SCROLL TO EXPLORE // CLICK PARTICLES TO ENTER</p>
           <div className="font-mono text-[10px] text-neutral-500 flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
-            <span className="text-white font-bold">[{Math.round(scrollProgress * 100).toString().padStart(3, '0')}%]</span>
+            <span className="text-white font-bold">[{progressPercentage.toString().padStart(3, '0')}%]</span>
             <div className="w-48 h-[2px] bg-white/10 overflow-hidden relative">
-              <div 
-                className="absolute top-0 left-0 h-full bg-[#FF0033] transition-all duration-100" 
-                style={{ width: `${scrollProgress * 100}%` }}
+              <motion.div 
+                className="absolute top-0 left-0 h-full bg-[#FF0033]" 
+                animate={{ width: `${progressPercentage}%` }}
+                transition={{ duration: 0.5, ease: "easeInOut" }}
               />
             </div>
           </div>
