@@ -30,19 +30,28 @@ const ParticleEngine: React.FC = () => {
   const navigate = useNavigate();
   const initialized = useRef(false);
 
+  // Safely check intro state inside the component to prevent sandbox ReferenceErrors
+  const hasPlayedIntroRef = useRef(false);
+  useEffect(() => {
+    try {
+      hasPlayedIntroRef.current = sessionStorage.getItem('renderdrops_intro') === 'true';
+    } catch (e) {
+      console.warn('sessionStorage access denied');
+    }
+  }, []);
+
   useEffect(() => {
     if (!canvasRef.current || initialized.current) return;
     initialized.current = true;
 
-    const hasPlayedIntro = getInitialIntroState();
     let isMobile = window.innerWidth < 768;
-    let CAMERA_BASE_Z = isMobile ? 100 : 70;
+    let CAMERA_BASE_Z = isMobile ? 110 : 80;
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2('#010101', 0.012);
+    scene.fog = new THREE.FogExp2('#010101', 0.008);
 
     const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.z = hasPlayedIntro ? CAMERA_BASE_Z : CAMERA_BASE_Z + 120;
+    camera.position.z = hasPlayedIntroRef.current ? CAMERA_BASE_Z : CAMERA_BASE_Z + 150;
 
     // High-performance renderer (Native Additive Blending for iPhone smoothness)
     const renderer = new THREE.WebGLRenderer({ 
@@ -54,8 +63,8 @@ const ParticleEngine: React.FC = () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
-    // INCREASED TO 60,000 FOR MASSIVE DENSITY AND COMPLEXITY
-    let MAX_PARTICLES = 60000; 
+    // MASSIVE PARTICLE COUNT FOR HIGH DENSITY AND COMPLEXITY
+    let MAX_PARTICLES = 80000; 
     let particleGeo: THREE.BufferGeometry;
     let particleSystem: THREE.Points;
     
@@ -70,6 +79,7 @@ const ParticleEngine: React.FC = () => {
 
     const shapesRef = { current: [] as { points: THREE.Vector3[], colors: THREE.Color[] }[] };
     let currentPhase = -1;
+    let currentTween: gsap.core.Tween | null = null;
     const morphControl = { progress: 0 };
 
     // Extracts pixels and maps brightness to 3D Z-Depth for complex volume
@@ -86,7 +96,7 @@ const ParticleEngine: React.FC = () => {
       const points = [];
       const colors = [];
 
-      // Step by 2 to hit ~60k particles on a 500x500 canvas
+      // Step by 1 or 2 to hit ~80k particles
       const step = 2; 
 
       for(let y=0; y<size; y+=step) {
@@ -99,9 +109,9 @@ const ParticleEngine: React.FC = () => {
             const brightness = (r + g + b) / (255 * 3);
             const zDepth = (brightness * 15) - 7.5 + (Math.random() - 0.5) * 2; // 3D Volume extrusion
             
-            points.push(new THREE.Vector3((x - size/2) * 0.12, -(y - size/2) * 0.12, zDepth));
+            points.push(new THREE.Vector3((x - size/2) * 0.14, -(y - size/2) * 0.14, zDepth));
             
-            // Exact colors, no dimming
+            // EXACT NORMAL COLORS (No dimming, exact RGB from image)
             colors.push(new THREE.Color(r/255, g/255, b/255));
           }
         }
@@ -109,7 +119,7 @@ const ParticleEngine: React.FC = () => {
       return { points, colors };
     };
 
-    // Exact replica of the requested RD Logo
+    // Highly accurate fallback drawing of the requested RD Logo
     const drawFallbackRD = (ctx: CanvasRenderingContext2D, size: number) => {
       const cx = size / 2;
       const cy = size / 2 - 30;
@@ -206,7 +216,7 @@ const ParticleEngine: React.FC = () => {
       }, 500);
 
       // Ensure we don't exceed the max points found in the logo
-      MAX_PARTICLES = Math.min(shapesRef.current[0].points.length, 60000);
+      MAX_PARTICLES = Math.min(shapesRef.current[0].points.length, 80000);
       
       posArray = new Float32Array(MAX_PARTICLES * 3);
       colorArray = new Float32Array(MAX_PARTICLES * 3);
@@ -221,23 +231,25 @@ const ParticleEngine: React.FC = () => {
       for(let i=0; i<MAX_PARTICLES; i++) {
         const arm = i % 3; 
         const angle = (i / MAX_PARTICLES) * Math.PI * 20 + (arm * Math.PI * 2 / 3);
-        const radius = 10 + Math.random() * 80 + (i / MAX_PARTICLES) * 40;
+        const radius = 10 + Math.random() * 100 + (i / MAX_PARTICLES) * 50;
         
         const rx = Math.cos(angle) * radius;
         const rz = Math.sin(angle) * radius;
-        const ry = (Math.random() - 0.5) * 80 * (1 - i/MAX_PARTICLES); // Tapered Y
+        const ry = (Math.random() - 0.5) * 100 * (1 - i/MAX_PARTICLES); // Tapered Y
 
         posArray[i*3] = basePositions[i*3] = sourcePositions[i*3] = targetPositions[i*3] = rx;
         posArray[i*3+1] = basePositions[i*3+1] = sourcePositions[i*3+1] = targetPositions[i*3+1] = ry;
         posArray[i*3+2] = basePositions[i*3+2] = sourcePositions[i*3+2] = targetPositions[i*3+2] = rz;
 
-        colorArray[i*3] = sourceColors[i*3] = targetColors[i*3] = 0.8; 
-        colorArray[i*3+1] = sourceColors[i*3+1] = targetColors[i*3+1] = 0.1; 
+        // Bright red for the intro vortex
+        colorArray[i*3] = sourceColors[i*3] = targetColors[i*3] = 1.0; 
+        colorArray[i*3+1] = sourceColors[i*3+1] = targetColors[i*3+1] = 0.0; 
         colorArray[i*3+2] = sourceColors[i*3+2] = targetColors[i*3+2] = 0.2; 
 
-        randomScatter[i*3] = (Math.random() - 0.5) * 80;
-        randomScatter[i*3+1] = (Math.random() - 0.5) * 80;
-        randomScatter[i*3+2] = (Math.random() - 0.5) * 100;
+        // Pre-calculate random scatter for explosive morphs
+        randomScatter[i*3] = (Math.random() - 0.5) * 150;
+        randomScatter[i*3+1] = (Math.random() - 0.5) * 150;
+        randomScatter[i*3+2] = (Math.random() - 0.5) * 200;
       }
 
       initScene();
@@ -248,19 +260,19 @@ const ParticleEngine: React.FC = () => {
       particleGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
       particleGeo.setAttribute('color', new THREE.BufferAttribute(colorArray, 3));
 
-      // Solid, bright circular texture (No dim edges)
+      // Solid, bright circular texture for vibrant colors
       const glowTex = () => {
         const c = document.createElement('canvas'); c.width=64; c.height=64; const ctx=c.getContext('2d');
         if(!ctx) return null;
         const g = ctx.createRadialGradient(32,32,0,32,32,32);
         g.addColorStop(0, 'rgba(255,255,255,1)');
-        g.addColorStop(0.4, 'rgba(255,255,255,1)'); // Solid core
+        g.addColorStop(0.4, 'rgba(255,255,255,0.9)'); // Solid core
         g.addColorStop(1, 'rgba(255,255,255,0)'); // Sharp fade
         ctx.fillStyle=g; ctx.fillRect(0,0,64,64); return new THREE.CanvasTexture(c);
       };
 
       const particleMat = new THREE.PointsMaterial({
-        size: 0.5, // Perfect size for high density
+        size: 0.4, // Smaller size for higher density looks more professional
         map: glowTex(), 
         vertexColors: true,
         transparent: true, 
@@ -288,10 +300,12 @@ const ParticleEngine: React.FC = () => {
         currentPhase = phaseIndex;
         const targetShape = shapesRef.current[phaseIndex];
 
+        if (currentTween) currentTween.kill();
+
         for(let i=0; i<MAX_PARTICLES; i++) {
-          sourcePositions[i*3] = posArray[i*3];
-          sourcePositions[i*3+1] = posArray[i*3+1];
-          sourcePositions[i*3+2] = posArray[i*3+2];
+          sourcePositions[i*3] = basePositions[i*3];
+          sourcePositions[i*3+1] = basePositions[i*3+1];
+          sourcePositions[i*3+2] = basePositions[i*3+2];
           
           sourceColors[i*3] = colorArray[i*3];
           sourceColors[i*3+1] = colorArray[i*3+1];
@@ -311,7 +325,7 @@ const ParticleEngine: React.FC = () => {
 
         morphControl.progress = 0;
         // Ultra-smooth iPhone-like easing
-        gsap.to(morphControl, { progress: 1, duration: 2.5, ease: "power3.inOut" });
+        currentTween = gsap.to(morphControl, { progress: 1, duration: 2.5, ease: "power3.inOut" });
       },
       triggerIntro: () => {
         try { sessionStorage.setItem('renderdrops_intro', 'true'); } catch(e) {}
@@ -319,24 +333,49 @@ const ParticleEngine: React.FC = () => {
         const targetShape = shapesRef.current[0];
         
         for(let i=0; i<MAX_PARTICLES; i++) {
-          sourcePositions[i*3] = posArray[i*3];
-          sourcePositions[i*3+1] = posArray[i*3+1];
-          sourcePositions[i*3+2] = posArray[i*3+2];
+          sourcePositions[i*3] = basePositions[i*3];
+          sourcePositions[i*3+1] = basePositions[i*3+1];
+          sourcePositions[i*3+2] = basePositions[i*3+2];
 
           const pt = targetShape.points[i % targetShape.points.length];
           const col = targetShape.colors[i % targetShape.colors.length];
-          targetPositions[i*3] = pt.x; targetPositions[i*3+1] = pt.y; targetPositions[i*3+2] = pt.z;
-          targetColors[i*3] = col.r; targetColors[i*3+1] = col.g; targetColors[i*3+2] = col.b;
+          targetPositions[i*3] = pt.x;
+          targetPositions[i*3+1] = pt.y;
+          targetPositions[i*3+2] = pt.z;
+          targetColors[i*3] = col.r;
+          targetColors[i*3+1] = col.g;
+          targetColors[i*3+2] = col.b;
         }
 
         gsap.to(camera.position, { z: CAMERA_BASE_Z - 20, duration: 1.0, ease: "power2.in" });
-        for(let i=0; i<MAX_PARTICLES; i++) {
-          gsap.to(basePositions, { [i*3]: 0, [i*3+1]: 0, [i*3+2]: 0, duration: 1.0, ease: "power2.in" });
-        }
+        
+        // Suck into center
+        const suckControl = { progress: 0 };
+        gsap.to(suckControl, {
+          progress: 1,
+          duration: 1.0,
+          ease: "power2.in",
+          onUpdate: () => {
+            const p = suckControl.progress;
+            for(let i=0; i<MAX_PARTICLES; i++) {
+              const i3 = i*3;
+              basePositions[i3] = sourcePositions[i3] * (1 - p);
+              basePositions[i3+1] = sourcePositions[i3+1] * (1 - p);
+              basePositions[i3+2] = sourcePositions[i3+2] * (1 - p);
+            }
+          }
+        });
 
         setTimeout(() => {
+          // Reset source positions to center for the burst
+          for(let i=0; i<MAX_PARTICLES; i++) {
+            const i3 = i*3;
+            sourcePositions[i3] = 0;
+            sourcePositions[i3+1] = 0;
+            sourcePositions[i3+2] = 0;
+          }
           morphControl.progress = 0;
-          gsap.to(morphControl, { progress: 1, duration: 3.0, ease: "expo.out" });
+          currentTween = gsap.to(morphControl, { progress: 1, duration: 3.0, ease: "expo.out" });
           gsap.to(camera.position, { z: CAMERA_BASE_Z, duration: 3.0, ease: "expo.out" });
         }, 1000);
       },
@@ -480,13 +519,14 @@ const ParticleEngine: React.FC = () => {
       initialized.current = false;
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('resize', handleResize);
+      if (currentTween) currentTween.kill();
       cancelAnimationFrame(animationFrameId);
       renderer.dispose();
       if (particleGeo) particleGeo.dispose();
     };
   }, []);
 
-  // Route-based morphing
+  // Route-based morphing synchronization
   useEffect(() => {
     if (!window.rdEngine || !window.rdEngine.isReady) return;
 
