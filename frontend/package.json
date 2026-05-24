@@ -14,7 +14,7 @@
     "react-router-dom": "latest",
     "framer-motion": "latest",
     "lucide-react": "latest",
-    "https://unpkg.com/three": "latest",
+    "three": "latest",
     "gsap": "latest"
   },
   "devDependencies": {
