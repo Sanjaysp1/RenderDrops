@@ -1,53 +1,109 @@
-# Vertex AI Studio Frontend App with Node.js Backend
+# RenderDrops // Core System
 
-This repository contains a frontend and a Node.js backend, designed to run together.
-The backend acts as a proxy, handling Google Cloud API calls.
+A professional development environment for running a Google Cloud Vertex AI Studio application. This project consists of a high-performance **React, Three.js, and Framer Motion frontend** coupled with a secure **Node.js/Express backend proxy** that negotiates API traffic with Google Cloud Platform.
 
-This project is intended for demonstration and prototyping purposes only.
-It is not intended for use in a production environment.
+---
 
-## Prerequisites
+## Architecture Overview
 
-To run this application locally, you need:
+```mermaid
+graph TD
+    A[Frontend React App] <-->|HTTP/WS Proxy| B[Backend Express Proxy]
+    B <-->|Google Auth Library| C[Google Vertex AI APIs]
+```
 
-*   **[Google Cloud SDK / gcloud CLI](https://cloud.google.com/sdk/docs/install)**: Follow the instructions to install the SDK.
+- **Frontend**: A React application utilizing Three.js/GSAP for 3D/particle visual rendering and Vite as the bundler.
+- **Backend**: An Express proxy that resolves authentication, checks request integrity using header handshakes, enforces rate-limiting, and forwards request/response streams directly to Google Vertex AI.
 
-*   **gcloud Initialization**:
-    *   Initialize the gcloud CLI:
-        ```bash
-        gcloud init
-        ```
-    *   Authenticate for Application Default Credentials (needed to call Google Cloud APIs):
-        ```bash
-        gcloud auth application-default login
-        ```
-
-*   **Node.js and npm**: Ensure you have Node.js and its package manager, `npm`, installed on your machine.
+---
 
 ## Project Structure
 
-The project is organized into two main directories:
+This project is configured as a multi-package repository using **npm Workspaces**. 
 
-*   `frontend/`: Contains the Frontend application code.
-*   `backend/`: Contains the Node.js/Express server code to proxy Google Cloud API calls.
+```
+.
+├── backend/                  # Node.js/Express Proxy API Server
+│   ├── config/               # Configuration loading & validation
+│   ├── middleware/           # Limiter and security middleware
+│   ├── routes/               # Proxy HTTP & WebSocket routes
+│   ├── utils/                # Auth token & regex helpers
+│   ├── .env.example          # Template environment config
+│   └── server.js             # Main server entrypoint
+├── frontend/                 # React & Vite client application
+│   ├── components/           # Navigation, footer, Three.js canvas
+│   ├── pages/                # Pages and view components
+│   └── vite.config.ts        # Vite build configuration
+├── package.json              # Root package defining workspaces
+└── README.md                 # System documentation
+```
 
-## Backend Environment Variables
+---
 
-The `backend/.env.local` file is automatically generated when you download this application.
-It contains essential Google Cloud environment variables pre-configured based on your project settings at the time of download.
+## Setup & Getting Started
 
-The variables set in `backend/.env.local` are:
-*   `API_BACKEND_PORT`: The port the backend API server listens on (e.g., `5000`).
-*   `API_PAYLOAD_MAX_SIZE`: The maximum size of the request payload accepted by the backend server (e.g., `5mb`).
-*   `GOOGLE_CLOUD_LOCATION`: The Google Cloud region associated with your project.
-*   `GOOGLE_CLOUD_PROJECT`: Your Google Cloud Project ID.
+### 1. Prerequisites
 
-**Note:** These variables are automatically populated during the download process.
-You can modify the values in `backend/.env.local` if you need to change them.
+Make sure you have the following installed:
+*   **Node.js** (v18 or higher recommended) and **npm**.
+*   **[Google Cloud SDK / gcloud CLI](https://cloud.google.com/sdk/docs/install)**.
 
-## Installation and Running the App
+### 2. Google Cloud Authentication
 
-To install dependencies and run your Google Cloud Vertex AI Studio App locally, execute the following command:
-
+Authenticate your local machine to call Google Cloud APIs with Application Default Credentials (ADC):
 ```bash
-npm install && npm run dev
+# Initialize and log in to gcloud CLI
+gcloud init
+
+# Authenticate for Application Default Credentials
+gcloud auth application-default login
+```
+
+### 3. Environment Configuration
+
+Copy the template env file inside the `backend` folder to configure your Google Cloud project details:
+```bash
+cp backend/.env.example backend/.env.local
+```
+
+Open `backend/.env.local` and define the following variables:
+- `GOOGLE_CLOUD_PROJECT`: Your Google Cloud Project ID.
+- `GOOGLE_CLOUD_LOCATION`: The location/region of your Vertex AI resources (e.g. `us-central1`).
+- `PROXY_HEADER`: A random secret string used to sign requests from frontend shim to proxy.
+
+### 4. Dependency Installation
+
+Because we use **npm Workspaces**, you only need to run a single command in the root folder to install dependencies for the root, frontend, and backend packages:
+```bash
+npm install
+```
+
+### 5. Running the Application locally
+
+Start both the frontend client and the backend proxy concurrently using the root dev script:
+```bash
+npm run dev
+```
+
+- **Frontend client** will be running at: `http://localhost:5173` (or the next available port).
+- **Backend proxy** will be running at: `http://localhost:5005`.
+
+---
+
+## Available Scripts
+
+From the root directory, you can run the following workspace scripts:
+
+| Command | Description |
+| :--- | :--- |
+| `npm install` | Installs dependencies across root, backend, and frontend |
+| `npm run dev` | Runs both frontend and backend development servers concurrently |
+| `npm run dev-frontend` | Runs Vite dev server for the frontend workspace |
+| `npm run dev-backend` | Runs Nodemon watch server for the backend workspace |
+
+---
+
+## Backend Security Features
+
+- **Vertex AI Rate Limiting**: Backend is protected by rate limiting configuration (`express-rate-limit`) preventing unexpected GCP usage costs.
+- **Shim Request Authentication**: Requests are signed using a proxy header handshake (`X-App-Proxy`) to ensure requests originate from the local application.
